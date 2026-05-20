@@ -3,10 +3,92 @@ import OpenAI from 'openai'
 import { selectModel, resolveForced } from '@/lib/chat/model-router'
 import type { ModelSelection } from '@/types'
 
-const SYSTEM_PROMPT = `Voce e o ALG3, assistente de IA do Hub ALG3.
-Voce ajuda com gestao de trafego pago (Meta Ads), analise de dados, automacoes e operacoes do dia a dia.
-Responda sempre em portugues brasileiro, de forma direta e objetiva.
-Quando relevante, use dados e metricas para embasar suas respostas.`
+async function buildSystemPrompt(): Promise<string> {
+  let metaData = ''
+  let agentsData = ''
+  let dashboardData = ''
+
+  try {
+    const metaRes = await fetch(
+      `https://graph.facebook.com/v21.0/act_1318032568658074/insights?fields=spend,impressions,clicks,ctr,cpc,cpm&date_preset=last_30d&access_token=${process.env.META_ACCESS_TOKEN}`,
+      { cache: 'no-store' }
+    )
+    if (metaRes.ok) {
+      const data = await metaRes.json()
+      const d = data.data?.[0]
+      if (d) {
+        metaData = `\n\nDADOS META ADS (SENAI, ultimos 30 dias):
+- Spend: R$ ${parseFloat(d.spend).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+- Impressoes: ${parseInt(d.impressions).toLocaleString('pt-BR')}
+- Clicks: ${parseInt(d.clicks).toLocaleString('pt-BR')}
+- CTR: ${d.ctr}%
+- CPC: R$ ${d.cpc}
+- CPM: R$ ${d.cpm}`
+      }
+    }
+  } catch {}
+
+  const paperclipUrl = process.env.PAPERCLIP_API_URL || 'http://127.0.0.1:3100/api'
+  const companyId = process.env.PAPERCLIP_COMPANY_ID || ''
+
+  try {
+    const agentsRes = await fetch(`${paperclipUrl}/companies/${companyId}/agents`, { cache: 'no-store' })
+    if (agentsRes.ok) {
+      const agents = await agentsRes.json()
+      if (Array.isArray(agents)) {
+        agentsData = `\n\nAGENTES PAPERCLIP (${agents.length} agentes):
+${agents.map((a: { name: string; title: string; status: string; adapterConfig?: { model?: string } }) =>
+  `- ${a.name} (${a.title}) — status: ${a.status}, modelo: ${a.adapterConfig?.model || 'N/A'}`
+).join('\n')}`
+      }
+    }
+  } catch {}
+
+  try {
+    const dashRes = await fetch(`${paperclipUrl}/companies/${companyId}/dashboard`, { cache: 'no-store' })
+    if (dashRes.ok) {
+      const dash = await dashRes.json()
+      dashboardData = `\n\nDASHBOARD PAPERCLIP:
+- Agentes ativos: ${dash.agents?.active || 0}, rodando: ${dash.agents?.running || 0}
+- Issues abertas: ${dash.tasks?.open || 0}, em progresso: ${dash.tasks?.inProgress || 0}`
+    }
+  } catch {}
+
+  return `Voce e o assistente executivo do ALG3 Hub — o centro de comando da holding ALG3.
+Voce TEM acesso real aos dados e PODE executar acoes. Responda sempre em portugues brasileiro, direto e objetivo.
+
+SUAS CAPACIDADES:
+- Consultar dados de campanhas Meta Ads (5 contas: SENAI, SESI Amazonas, SESI Escola, SESI Saude, SESI Lazer)
+- Ver status e gerenciar agentes AI do Paperclip (criar issues, consultar dashboard)
+- Analisar metricas de trafego pago (spend, CTR, CPC, CPM, ROAS)
+- Criar tarefas para os agentes executarem
+- Consultar dados de vendas e tracking (Utmify)
+- Gerar criativos com GPT Image e Lovart AI
+
+EMPRESAS DO GRUPO ALG3:
+1. Top Prime Seguros e Saude
+2. Top Prime Vida e Previdencia
+3. Top Prime Seguros Patrimoniais
+4. Top Prime Consorcios e Investimentos
+5. RedeCORR
+6. GDA Sistemas
+7. Plano A Administradora
+8. Clinica Salut
+9. Laboratorio Giovani
+
+CONTAS META ADS:
+- SENAI NOVA (act_1318032568658074) — principal
+- SESI AMAZONAS (act_103647143172752)
+- SESI ESCOLA (act_172742621703309)
+- SESI SAUDE (act_447781743367534)
+- SESI LAZER (act_198656655774871)
+${metaData}${agentsData}${dashboardData}
+
+Quando o usuario pedir para ativar/executar agentes, explique que pode criar issues/tarefas no Paperclip para os agentes executarem.
+Quando pedir dados de campanhas, use os dados reais acima.
+Seja proativo, mostre numeros e sugira acoes concretas.`
+}
+
 
 function createSSEStream(readable: ReadableStream): Response {
   return new Response(readable, {
@@ -25,6 +107,7 @@ function sseEncode(data: unknown): string {
 async function streamAnthropic(
   model: ModelSelection,
   messages: Array<{ role: string; content: string }>,
+  systemPrompt: string,
 ): Promise<Response> {
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY not configured')
@@ -39,7 +122,7 @@ async function streamAnthropic(
     body: JSON.stringify({
       model: model.model,
       max_tokens: 4096,
-      system: SYSTEM_PROMPT,
+      system: systemPrompt,
       messages: messages.map(m => ({ role: m.role, content: m.content })),
       stream: true,
     }),
@@ -99,13 +182,14 @@ async function streamAnthropic(
 async function streamOpenAI(
   model: ModelSelection,
   messages: Array<{ role: string; content: string }>,
+  systemPrompt: string,
 ): Promise<Response> {
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
   const completion = await openai.chat.completions.create({
     model: model.model,
     messages: [
-      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'system', content: systemPrompt },
       ...messages.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
     ],
     stream: true,
@@ -139,6 +223,7 @@ async function streamOpenAI(
 async function streamOpenRouter(
   model: ModelSelection,
   messages: Array<{ role: string; content: string }>,
+  systemPrompt: string,
 ): Promise<Response> {
   const apiKey = process.env.OPENROUTER_API_KEY
   if (!apiKey) throw new Error('OPENROUTER_API_KEY not configured')
@@ -154,7 +239,7 @@ async function streamOpenRouter(
     body: JSON.stringify({
       model: model.model,
       messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'system', content: systemPrompt },
         ...messages.map(m => ({ role: m.role, content: m.content })),
       ],
       stream: true,
@@ -233,6 +318,8 @@ export async function POST(req: NextRequest) {
       model = selectModel(lastUserMessage)
     }
 
+    const systemPrompt = await buildSystemPrompt()
+
     const streamFn = {
       anthropic: streamAnthropic,
       openai: streamOpenAI,
@@ -240,7 +327,7 @@ export async function POST(req: NextRequest) {
     }[model.provider]
 
     try {
-      return await streamFn(model, messages)
+      return await streamFn(model, messages, systemPrompt)
     } catch (primaryError) {
       // Fallback: try OpenRouter free models if primary fails
       if (model.provider !== 'openrouter') {
@@ -251,7 +338,7 @@ export async function POST(req: NextRequest) {
           tier: model.tier,
           supportsTools: false,
         }
-        return await streamOpenRouter(fallback, messages)
+        return await streamOpenRouter(fallback, messages, systemPrompt)
       }
       throw primaryError
     }
