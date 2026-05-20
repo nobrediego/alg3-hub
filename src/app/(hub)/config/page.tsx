@@ -4,139 +4,64 @@ import { useEffect, useState, useCallback } from "react"
 import { Header } from "@/components/layout/header"
 import { RefreshCw } from "lucide-react"
 
-interface IntegrationStatus {
-  name: string
-  description: string
-  status: "connected" | "error" | "unconfigured" | "checking"
-  lastChecked: number | null
-  testEndpoint: string | null
+interface ServiceStatus {
+  configured: boolean
+  connected?: boolean
+  error?: string
 }
 
-const INITIAL_INTEGRATIONS: IntegrationStatus[] = [
-  {
-    name: "Meta Ads",
-    description: "Facebook & Instagram Ads API",
-    status: "checking",
-    lastChecked: null,
-    testEndpoint: "/api/meta/insights?account_id=senai",
-  },
-  {
-    name: "Paperclip",
-    description: "Agentes AI e automacao",
-    status: "checking",
-    lastChecked: null,
-    testEndpoint: "/api/paperclip/agents",
-  },
-  {
-    name: "Utmify",
-    description: "Rastreamento de vendas e UTMs",
-    status: "checking",
-    lastChecked: null,
-    testEndpoint: "/api/utmify/sales",
-  },
-  {
-    name: "OpenAI",
-    description: "GPT-4o e modelos de linguagem",
-    status: "unconfigured",
-    lastChecked: null,
-    testEndpoint: null,
-  },
-  {
-    name: "OpenRouter",
-    description: "Gateway de modelos AI",
-    status: "unconfigured",
-    lastChecked: null,
-    testEndpoint: null,
-  },
-  {
-    name: "Supabase",
-    description: "Banco de dados e autenticacao",
-    status: "unconfigured",
-    lastChecked: null,
-    testEndpoint: null,
-  },
-  {
-    name: "Canva",
-    description: "Design e criativos",
-    status: "unconfigured",
-    lastChecked: null,
-    testEndpoint: null,
-  },
-  {
-    name: "Lovart",
-    description: "Geracao de imagens AI",
-    status: "unconfigured",
-    lastChecked: null,
-    testEndpoint: null,
-  },
+type StatusMap = Record<string, ServiceStatus>
+
+const SERVICES = [
+  { key: "meta", name: "Meta Ads", description: "API de anuncios do Facebook e Instagram" },
+  { key: "paperclip", name: "Paperclip", description: "Agentes AI e automacao" },
+  { key: "utmify", name: "Utmify", description: "Rastreamento de vendas e UTMs" },
+  { key: "openai", name: "OpenAI", description: "GPT-4o e modelos de linguagem" },
+  { key: "openrouter", name: "OpenRouter", description: "Gateway de modelos AI" },
+  { key: "supabase", name: "Supabase", description: "Banco de dados e autenticacao" },
+  { key: "canva", name: "Canva", description: "Design e criativos" },
+  { key: "lovart", name: "Lovart", description: "Geracao de imagens AI" },
 ]
 
-function statusColor(status: IntegrationStatus["status"]) {
-  switch (status) {
-    case "connected":
-      return "bg-green-500"
-    case "error":
-      return "bg-red-500"
-    case "unconfigured":
-      return "bg-gray-400"
-    case "checking":
-      return "bg-amber-500"
-  }
+function getStatusDot(s?: ServiceStatus) {
+  if (!s) return "bg-gray-400"
+  if (!s.configured) return "bg-gray-400"
+  if (s.connected) return "bg-green-500"
+  if (s.error) return "bg-red-500"
+  return "bg-amber-500"
 }
 
-function statusLabel(status: IntegrationStatus["status"]) {
-  switch (status) {
-    case "connected":
-      return "Conectado"
-    case "error":
-      return "Erro"
-    case "unconfigured":
-      return "Nao configurado"
-    case "checking":
-      return "Verificando..."
-  }
+function getStatusLabel(s?: ServiceStatus) {
+  if (!s) return "Verificando..."
+  if (!s.configured) return "Nao configurado"
+  if (s.connected) return "Conectado"
+  if (s.error) return s.error
+  return "Verificando..."
 }
 
 export default function ConfigPage() {
-  const [integrations, setIntegrations] =
-    useState<IntegrationStatus[]>(INITIAL_INTEGRATIONS)
+  const [statuses, setStatuses] = useState<StatusMap | null>(null)
   const [checking, setChecking] = useState(false)
+  const [lastChecked, setLastChecked] = useState<number | null>(null)
 
-  const checkIntegrations = useCallback(async () => {
+  const checkAll = useCallback(async () => {
     setChecking(true)
-
-    const updated = await Promise.all(
-      INITIAL_INTEGRATIONS.map(async (integration) => {
-        if (!integration.testEndpoint) {
-          return { ...integration }
-        }
-
-        try {
-          const res = await fetch(integration.testEndpoint)
-          return {
-            ...integration,
-            status: res.ok
-              ? ("connected" as const)
-              : ("error" as const),
-            lastChecked: Date.now(),
-          }
-        } catch {
-          return {
-            ...integration,
-            status: "error" as const,
-            lastChecked: Date.now(),
-          }
-        }
-      })
-    )
-
-    setIntegrations(updated)
-    setChecking(false)
+    try {
+      const res = await fetch("/api/status")
+      if (res.ok) {
+        setStatuses(await res.json())
+        setLastChecked(Date.now())
+      }
+    } catch {
+      // silently fail
+    } finally {
+      setChecking(false)
+    }
   }, [])
 
   useEffect(() => {
-    checkIntegrations()
-  }, [checkIntegrations])
+    checkAll()
+  }, [checkAll])
 
   return (
     <>
@@ -151,7 +76,7 @@ export default function ConfigPage() {
             INTEGRACOES
           </p>
           <button
-            onClick={checkIntegrations}
+            onClick={checkAll}
             disabled={checking}
             className="flex items-center gap-1.5 rounded-lg border px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
           >
@@ -163,38 +88,39 @@ export default function ConfigPage() {
         </div>
 
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {integrations.map((integration) => (
-            <div
-              key={integration.name}
-              className="rounded-lg border bg-card p-4"
-            >
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className="text-sm font-semibold">{integration.name}</p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    {integration.description}
-                  </p>
+          {SERVICES.map((svc) => {
+            const s = statuses?.[svc.key]
+            return (
+              <div key={svc.key} className="rounded-lg border bg-card p-4">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <p className="text-sm font-semibold">{svc.name}</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {svc.description}
+                    </p>
+                  </div>
+                  <span
+                    className={`mt-1 size-2 shrink-0 rounded-full ${getStatusDot(s)}`}
+                  />
                 </div>
-                <span
-                  className={`mt-1 size-2 shrink-0 rounded-full ${statusColor(integration.status)}`}
-                />
-              </div>
 
-              <div className="mt-3 flex items-center justify-between">
-                <span className="text-xs text-muted-foreground">
-                  {statusLabel(integration.status)}
-                </span>
-                {integration.lastChecked && (
-                  <span className="text-[10px] text-muted-foreground">
-                    {new Date(integration.lastChecked).toLocaleTimeString(
-                      "pt-BR",
-                      { hour: "2-digit", minute: "2-digit", second: "2-digit" }
-                    )}
+                <div className="mt-3 flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">
+                    {getStatusLabel(s)}
                   </span>
-                )}
+                  {lastChecked && (
+                    <span className="text-[10px] text-muted-foreground">
+                      {new Date(lastChecked).toLocaleTimeString("pt-BR", {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                        second: "2-digit",
+                      })}
+                    </span>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       </section>
     </>
