@@ -8,23 +8,38 @@ async function buildSystemPrompt(): Promise<string> {
   let agentsData = ''
   let dashboardData = ''
 
+  const metaAccounts = [
+    { name: 'SENAI NOVA', id: 'act_1318032568658074' },
+    { name: 'SESI AMAZONAS', id: 'act_103647143172752' },
+    { name: 'SESI ESCOLA', id: 'act_172742621703309' },
+    { name: 'SESI SAUDE', id: 'act_447781743367534' },
+    { name: 'SESI LAZER', id: 'act_198656655774871' },
+  ]
+  const token = process.env.META_ACCESS_TOKEN
+
   try {
-    const metaRes = await fetch(
-      `https://graph.facebook.com/v21.0/act_1318032568658074/insights?fields=spend,impressions,clicks,ctr,cpc,cpm&date_preset=last_30d&access_token=${process.env.META_ACCESS_TOKEN}`,
-      { cache: 'no-store' }
+    const results = await Promise.allSettled(
+      metaAccounts.map(acc =>
+        fetch(
+          `https://graph.facebook.com/v21.0/${acc.id}/insights?fields=spend,impressions,clicks,ctr,cpc,cpm&date_preset=last_30d&access_token=${token}`,
+          { cache: 'no-store' }
+        ).then(r => r.ok ? r.json() : null)
+      )
     )
-    if (metaRes.ok) {
-      const data = await metaRes.json()
-      const d = data.data?.[0]
-      if (d) {
-        metaData = `\n\nDADOS META ADS (SENAI, ultimos 30 dias):
-- Spend: R$ ${parseFloat(d.spend).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-- Impressoes: ${parseInt(d.impressions).toLocaleString('pt-BR')}
-- Clicks: ${parseInt(d.clicks).toLocaleString('pt-BR')}
-- CTR: ${d.ctr}%
-- CPC: R$ ${d.cpc}
-- CPM: R$ ${d.cpm}`
+
+    const lines: string[] = []
+    results.forEach((r, i) => {
+      if (r.status === 'fulfilled' && r.value?.data?.[0]) {
+        const d = r.value.data[0]
+        lines.push(`${metaAccounts[i].name} (${metaAccounts[i].id}):
+  Spend: R$ ${parseFloat(d.spend).toLocaleString('pt-BR', { minimumFractionDigits: 2 })} | Impressoes: ${parseInt(d.impressions).toLocaleString('pt-BR')} | Clicks: ${parseInt(d.clicks).toLocaleString('pt-BR')} | CTR: ${d.ctr}% | CPC: R$ ${d.cpc} | CPM: R$ ${d.cpm}`)
+      } else {
+        lines.push(`${metaAccounts[i].name}: sem dados no periodo`)
       }
+    })
+
+    if (lines.length > 0) {
+      metaData = `\n\nDADOS META ADS (ultimos 30 dias):\n${lines.join('\n')}`
     }
   } catch {}
 
