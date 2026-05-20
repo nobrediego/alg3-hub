@@ -12,23 +12,16 @@ import {
 interface Agent {
   id: string
   name: string
+  title: string
   role: string
   status: string
 }
 
-interface DashboardData {
-  agents?: Agent[]
-  activities?: Array<{
-    id: string
-    description: string
-    created_at: string
-  }>
-  stats?: {
-    active_agents: number
-    active_campaigns: number
-    total_spend: number
-    open_issues: number
-  }
+interface DashboardStats {
+  agents?: { active: number; running: number; paused: number; error: number }
+  tasks?: { open: number; inProgress: number; blocked: number; done: number }
+  costs?: { monthSpendCents: number; monthBudgetCents: number }
+  runActivity?: Array<{ date: string; succeeded: number; failed: number; total: number }>
 }
 
 interface InsightsData {
@@ -39,18 +32,12 @@ interface InsightsData {
   }>
 }
 
-const DEFAULT_AGENTS: Agent[] = [
-  { id: "1", name: "ORION", role: "Assistente Central", status: "active" },
-  { id: "2", name: "ATHENA", role: "Analise de Dados", status: "active" },
-  { id: "3", name: "HERMES", role: "Comunicacao", status: "active" },
-  { id: "4", name: "APOLLO", role: "Campanhas", status: "paused" },
-  { id: "5", name: "SENTINEL", role: "Monitoramento", status: "inactive" },
-]
-
 function statusColor(status: string) {
   switch (status) {
-    case "active":
+    case "idle":
       return "bg-green-500"
+    case "running":
+      return "bg-blue-500"
     case "error":
       return "bg-red-500"
     case "paused":
@@ -62,19 +49,22 @@ function statusColor(status: string) {
 
 function statusLabel(status: string) {
   switch (status) {
-    case "active":
-      return "Ativo"
+    case "idle":
+      return "Disponivel"
+    case "running":
+      return "Executando"
     case "error":
       return "Erro"
     case "paused":
-      return "Pausa"
+      return "Pausado"
     default:
       return "Inativo"
   }
 }
 
 export default function PainelPage() {
-  const [dashboard, setDashboard] = useState<DashboardData | null>(null)
+  const [agents, setAgents] = useState<Agent[]>([])
+  const [dashboard, setDashboard] = useState<DashboardStats | null>(null)
   const [insights, setInsights] = useState<InsightsData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -82,10 +72,16 @@ export default function PainelPage() {
   useEffect(() => {
     async function fetchData() {
       try {
-        const [dashRes, insightsRes] = await Promise.allSettled([
+        const [agentsRes, dashRes, insightsRes] = await Promise.allSettled([
+          fetch("/api/paperclip/agents"),
           fetch("/api/paperclip/dashboard"),
           fetch("/api/meta/insights?account_id=senai"),
         ])
+
+        if (agentsRes.status === "fulfilled" && agentsRes.value.ok) {
+          const data = await agentsRes.value.json()
+          setAgents(Array.isArray(data) ? data : [])
+        }
 
         if (dashRes.status === "fulfilled" && dashRes.value.ok) {
           setDashboard(await dashRes.value.json())
@@ -104,25 +100,24 @@ export default function PainelPage() {
     fetchData()
   }, [])
 
-  const agents = dashboard?.agents ?? DEFAULT_AGENTS
-  const activeAgents = agents.filter((a) => a.status === "active").length
+  const activeAgents = dashboard?.agents?.active ?? agents.filter((a) => a.status === "idle" || a.status === "running").length
+  const totalAgents = agents.length || (dashboard?.agents ? Object.values(dashboard.agents).reduce((a, b) => a + b, 0) : 0)
   const totalSpend = insights?.data?.[0]?.spend
     ? parseFloat(insights.data[0].spend)
     : 0
-  const openIssues = dashboard?.stats?.open_issues ?? 0
-  const activeCampaigns = dashboard?.stats?.active_campaigns ?? 0
+  const openIssues = dashboard?.tasks?.open ?? 0
 
   const stats = [
     {
       label: "Agentes Ativos",
       value: activeAgents.toString(),
-      description: `de ${agents.length} configurados`,
+      description: `de ${totalAgents} configurados`,
       icon: Bot,
     },
     {
       label: "Campanhas Ativas",
-      value: activeCampaigns.toString(),
-      description: "Meta Ads",
+      value: insights ? "Conectado" : "—",
+      description: "Meta Ads SENAI",
       icon: Megaphone,
     },
     {
@@ -142,7 +137,9 @@ export default function PainelPage() {
     },
   ]
 
-  const activities = dashboard?.activities ?? []
+  const recentActivity = (dashboard?.runActivity ?? [])
+    .filter((r) => r.total > 0)
+    .slice(0, 5)
 
   if (loading) {
     return (
@@ -176,7 +173,7 @@ export default function PainelPage() {
     )
   }
 
-  if (error && !dashboard && !insights) {
+  if (error && agents.length === 0 && !dashboard && !insights) {
     return (
       <>
         <Header title="Painel" />
@@ -198,25 +195,33 @@ export default function PainelPage() {
             AGENTES
           </p>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
-            {agents.slice(0, 5).map((agent) => (
-              <div
-                key={agent.id}
-                className="rounded-lg border bg-card p-4"
-              >
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-semibold">{agent.name}</p>
-                  <span
-                    className={`size-2 rounded-full ${statusColor(agent.status)}`}
-                  />
+            {agents.length > 0 ? (
+              agents.map((agent) => (
+                <div
+                  key={agent.id}
+                  className="rounded-lg border bg-card p-4"
+                >
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-semibold">{agent.name}</p>
+                    <span
+                      className={`size-2 rounded-full ${statusColor(agent.status)}`}
+                    />
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {agent.title || agent.role}
+                  </p>
+                  <p className="mt-1 text-[10px] text-muted-foreground">
+                    {statusLabel(agent.status)}
+                  </p>
                 </div>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {agent.role}
-                </p>
-                <p className="mt-1 text-[10px] text-muted-foreground">
-                  {statusLabel(agent.status)}
-                </p>
-              </div>
-            ))}
+              ))
+            ) : (
+              Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="rounded-lg border bg-card p-4">
+                  <p className="text-sm text-muted-foreground">Sem conexao com Paperclip</p>
+                </div>
+              ))
+            )}
           </div>
         </section>
 
@@ -251,14 +256,17 @@ export default function PainelPage() {
             ATIVIDADE RECENTE
           </p>
           <div className="rounded-lg border bg-card">
-            {activities.length > 0 ? (
+            {recentActivity.length > 0 ? (
               <ul className="divide-y">
-                {activities.map((activity) => (
-                  <li key={activity.id} className="px-4 py-3">
-                    <p className="text-sm">{activity.description}</p>
-                    <p className="mt-0.5 text-[10px] text-muted-foreground">
-                      {new Date(activity.created_at).toLocaleString("pt-BR")}
-                    </p>
+                {recentActivity.map((run) => (
+                  <li key={run.date} className="flex items-center justify-between px-4 py-3">
+                    <div>
+                      <p className="text-sm">{run.date}</p>
+                      <p className="text-[10px] text-muted-foreground">
+                        {run.succeeded} sucesso, {run.failed} falha
+                      </p>
+                    </div>
+                    <p className="text-sm font-medium">{run.total} runs</p>
                   </li>
                 ))}
               </ul>

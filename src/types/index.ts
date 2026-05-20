@@ -39,31 +39,31 @@ export interface MetaAccount {
 export interface PaperclipAgent {
   id: string
   name: string
+  title?: string
   role: string
-  status: 'idle' | 'running' | 'error'
+  status: 'idle' | 'running' | 'paused' | 'error'
   capabilities?: string
-  metadata?: Record<string, unknown>
+  adapterConfig?: { model?: string }
+  metadata?: { knowledgeBase?: { role?: string } }
 }
 
 export interface PaperclipIssue {
   id: string
   title: string
   description: string
-  status: string
-  priority: string
-  assignee_id?: string
-  created_at: string
+  status: 'backlog' | 'in_progress' | 'done' | 'cancelled'
+  priority: 'low' | 'medium' | 'high' | 'urgent'
+  assigneeAgentId?: string
+  identifier?: string
+  createdAt: string
 }
 
 export interface PaperclipDashboard {
-  agents: PaperclipAgent[]
-  issues: PaperclipIssue[]
-  stats: {
-    total_agents: number
-    active_agents: number
-    total_issues: number
-    open_issues: number
-  }
+  companyId: string
+  agents: { active: number; running: number; paused: number; error: number }
+  tasks: { open: number; inProgress: number; blocked: number; done: number }
+  costs: { monthSpendCents: number; monthBudgetCents: number }
+  runActivity: Array<{ date: string; succeeded: number; failed: number; other: number; total: number }>
 }
 
 export interface ChatMessage {

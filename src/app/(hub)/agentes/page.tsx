@@ -7,19 +7,20 @@ import { Bot, Database } from "lucide-react"
 interface Agent {
   id: string
   name: string
+  title?: string
   role: string
   status: string
-  capabilities?: string[]
-  knowledge_base?: {
-    size?: number
-    documents?: number
-  }
+  capabilities?: string
+  adapterConfig?: { model?: string }
+  metadata?: { knowledgeBase?: { role?: string } }
 }
 
 function statusColor(status: string) {
   switch (status) {
-    case "active":
+    case "idle":
       return "bg-green-500"
+    case "running":
+      return "bg-blue-500"
     case "error":
       return "bg-red-500"
     case "paused":
@@ -31,12 +32,14 @@ function statusColor(status: string) {
 
 function statusLabel(status: string) {
   switch (status) {
-    case "active":
-      return "Ativo"
+    case "idle":
+      return "Disponivel"
+    case "running":
+      return "Executando"
     case "error":
       return "Erro"
     case "paused":
-      return "Pausa"
+      return "Pausado"
     default:
       return "Inativo"
   }
@@ -70,7 +73,7 @@ export default function AgentesPage() {
 
       {loading ? (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {Array.from({ length: 6 }).map((_, i) => (
+          {Array.from({ length: 5 }).map((_, i) => (
             <div
               key={i}
               className="h-36 animate-pulse rounded-lg border bg-card"
@@ -89,7 +92,7 @@ export default function AgentesPage() {
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-semibold">{agent.name}</p>
                   <p className="mt-0.5 text-xs text-muted-foreground">
-                    {agent.role}
+                    {agent.title || agent.role}
                   </p>
                 </div>
                 <Bot className="size-4 shrink-0 text-muted-foreground" />
@@ -104,26 +107,30 @@ export default function AgentesPage() {
                 </span>
               </div>
 
-              {agent.capabilities && agent.capabilities.length > 0 && (
+              {agent.adapterConfig?.model && (
+                <div className="mt-2">
+                  <span className="inline-flex items-center rounded bg-secondary px-1.5 py-0.5 text-[10px] font-medium text-secondary-foreground">
+                    {agent.adapterConfig.model}
+                  </span>
+                </div>
+              )}
+
+              {agent.capabilities && (
                 <div className="mt-3">
                   <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
                     Capacidades
                   </p>
                   <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-                    {agent.capabilities.join(", ")}
+                    {agent.capabilities}
                   </p>
                 </div>
               )}
 
-              {agent.knowledge_base && (
+              {agent.metadata?.knowledgeBase?.role && (
                 <div className="mt-3 flex items-center gap-1.5">
                   <Database className="size-3 text-muted-foreground" />
                   <span className="text-[10px] text-muted-foreground">
-                    {agent.knowledge_base.documents != null
-                      ? `${agent.knowledge_base.documents} documentos`
-                      : agent.knowledge_base.size != null
-                        ? `${agent.knowledge_base.size} itens`
-                        : "Base de conhecimento"}
+                    Base de conhecimento ({Math.round(agent.metadata.knowledgeBase.role.length / 1024)}K chars)
                   </span>
                 </div>
               )}

@@ -14,9 +14,9 @@ interface Message {
 const MODELS = [
   { id: "auto", label: "Auto (recomendado)" },
   { id: "gpt-4o", label: "GPT-4o" },
-  { id: "claude-sonnet", label: "Claude Sonnet" },
-  { id: "nemotron-3-super", label: "Nemotron 3 Super (gratis)" },
-  { id: "deepseek-v4-flash", label: "DeepSeek V4 Flash (gratis)" },
+  { id: "claude-sonnet-4-20250514", label: "Claude Sonnet" },
+  { id: "nvidia/llama-3.1-nemotron-ultra-253b-v1:free", label: "Nemotron Ultra (gratis)" },
+  { id: "deepseek/deepseek-chat-v3-0324:free", label: "DeepSeek V3 (gratis)" },
 ] as const
 
 const WELCOME_MESSAGE: Message = {
@@ -227,7 +227,7 @@ export default function ChatPage() {
   }
 
   return (
-    <div className="flex h-[calc(100vh-3.5rem)] flex-col">
+    <div className="flex h-[calc(100vh-4rem)] flex-col -m-4 lg:-m-6">
       {/* Header */}
       <div className="flex items-center justify-between border-b px-4 py-3">
         <h1 className="font-montserrat text-lg font-semibold tracking-tight">
